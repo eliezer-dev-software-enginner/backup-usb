@@ -31,4 +31,17 @@ class BackupServiceTest {
         Path mount = Files.createDirectory(root.resolve("usb"));
         assertThrows(IOException.class, () -> BackupService.copy(source, root.resolve("other"), mount, ignored -> {}));
     }
+
+    @Test void cancellationKeepsExistingTargetAndRemovesTemporaryFile() throws Exception {
+        Path source = Files.createDirectory(root.resolve("source"));
+        Path mount = Files.createDirectory(root.resolve("usb"));
+        Path destination = Files.createDirectory(mount.resolve("backup"));
+        Files.write(source.resolve("data.bin"), new byte[2 * 1024 * 1024]);
+        Files.writeString(destination.resolve("data.bin"), "original");
+        var checks = new java.util.concurrent.atomic.AtomicInteger();
+        assertThrows(BackupService.Cancelled.class, () -> BackupService.copy(source, destination, mount,
+                ignored -> {}, () -> checks.incrementAndGet() > 5));
+        assertEquals("original", Files.readString(destination.resolve("data.bin")));
+        try (var entries = Files.list(destination)) { assertEquals(1, entries.count()); }
+    }
 }

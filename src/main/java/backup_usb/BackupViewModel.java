@@ -29,10 +29,13 @@ public final class BackupViewModel {
     public final State<String> status = State.of("Pronto.");
     public final State<String> copyStatus = State.of("Nenhuma cópia iniciada.");
     public final State<Integer> copyPercent = State.of(0);
+    public final State<String> copyPercentLabel = State.of("0%");
+    public final State<String> copyActionLabel = State.of("Iniciar cópia agora");
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "backup-usb-scheduler"); thread.setDaemon(true); return thread;
     });
     private final AtomicBoolean copying = new AtomicBoolean();
+    private final AtomicBoolean cancelRequested = new AtomicBoolean();
     private volatile Settings saved;
     private volatile long lastSlot = -1;
 
@@ -70,14 +73,21 @@ public final class BackupViewModel {
         } catch (Exception e) { status.set("Não foi possível salvar: " + e.getMessage()); }
     }
 
-    public void copyNow() {
+    public void toggleCopy() {
+        if (copying.get()) {
+            cancelRequested.set(true);
+            copyStatus.set("Interrompendo cópia...");
+            LOG.info("Interrupção da cópia solicitada.");
+            return;
+        }
         try { runCopy(parse()); }
         catch (Exception e) { status.set("Configuração inválida: " + e.getMessage()); }
     }
 
     private void runCopy(Settings settings) {
         if (!copying.compareAndSet(false, true)) { UI.runOnUi(() -> copyStatus.set("Já existe uma cópia em andamento.")); return; }
-        UI.runOnUi(() -> { copyPercent.set(0); copyStatus.set("Validando espaço e iniciando cópia..."); });
+        cancelRequested.set(false);
+        UI.runOnUi(() -> { copyPercent.set(0); copyPercentLabel.set("0%"); copyActionLabel.set("Interromper cópia"); copyStatus.set("Validando espaço e iniciando cópia..."); });
         LOG.info("Iniciando cópia para " + settings.destination());
         Thread.startVirtualThread(() -> {
             try {
@@ -88,14 +98,20 @@ public final class BackupViewModel {
                 BackupService.copy(settings.source(), settings.destination(), mount, progress -> {
                     String message = progress.message();
                     LOG.info(message);
-                    UI.runOnUi(() -> { copyPercent.set(progress.percent()); copyStatus.set(message); });
-                });
-                UI.runOnUi(() -> { copyPercent.set(100); copyStatus.set("Cópia concluída."); });
+                    UI.runOnUi(() -> { copyPercent.set(progress.percent()); copyPercentLabel.set(progress.percent() + "%"); copyStatus.set(message); });
+                }, cancelRequested::get);
+                UI.runOnUi(() -> { copyPercent.set(100); copyPercentLabel.set("100%"); copyStatus.set("Cópia concluída."); });
                 LOG.info("Cópia concluída em " + settings.destination());
+            } catch (BackupService.Cancelled e) {
+                LOG.info("Cópia interrompida pelo usuário.");
+                UI.runOnUi(() -> copyStatus.set("Cópia interrompida pelo usuário."));
             } catch (Exception e) {
                 LOG.log(Level.SEVERE, "Falha na cópia", e);
                 UI.runOnUi(() -> copyStatus.set("Falha na cópia: " + e.getMessage()));
-            } finally { copying.set(false); }
+            } finally {
+                copying.set(false);
+                UI.runOnUi(() -> copyActionLabel.set("Iniciar cópia agora"));
+            }
         });
     }
 

@@ -18,6 +18,10 @@ public final class HomeScreen implements ScreenComponent {
     @Override public Component render() {
         return new Column(new ColumnProps().paddingAll(28).spacingOf(12)).children(
                 new Text("Backup USB", new TextProps().fontSize(28)),
+                new Row(new RowProps().spacingOf(8)).children(
+                        new Text("Progresso da cópia:"), new Text(model.copyPercentLabel)),
+                new ProgressBar(model.copyPercent),
+                new Text(model.copyStatus),
                 new Text("Dispositivos USB montados (informação visual)"),
                 new Text(model.devices),
                 new Button("Atualizar dispositivos").onClick(model::refreshDevices),
@@ -34,11 +38,8 @@ public final class HomeScreen implements ScreenComponent {
                         new Input(model.start), new Input(model.end), new Input(model.interval)),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Button("Salvar definições").onClick(model::save),
-                        new Button("Iniciar cópia agora").onClick(model::copyNow)),
+                        new Button(model.copyActionLabel).onClick(model::toggleCopy)),
                 new Text("Definições"),
-                new Text(model.status),
-                new Text("Progresso da cópia"),
-                new ProgressBar(model.copyPercent),
-                new Text(model.copyStatus));
+                new Text(model.status));
     }
 }
