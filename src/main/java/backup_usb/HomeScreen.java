@@ -5,6 +5,7 @@ import megalodonte.base.components.ScreenComponent;
 import megalodonte.components.Text;
 import megalodonte.components.Button;
 import megalodonte.components.ProgressBar;
+import megalodonte.components.TextFlow;
 import megalodonte.components.inputs.Input;
 import megalodonte.components.layout_components.Column;
 import megalodonte.components.layout_components.Row;
@@ -19,7 +20,10 @@ public final class HomeScreen implements ScreenComponent {
         return new Column(new ColumnProps().paddingAll(28).spacingOf(12)).children(
                 new Text("Backup USB", new TextProps().fontSize(28)),
                 new Row(new RowProps().spacingOf(8)).children(
-                        new Text("Progresso da cópia:"), new Text(model.copyPercentLabel)),
+                        new Text("Progresso da cópia:"),
+                        new Text(model.copyPercentLabel),
+                        new Button("Salvar definições").onClick(model::save)
+                        ),
                 new ProgressBar(model.copyPercent),
                 new Text(model.copyStatus),
                 new Text("Dispositivos USB montados (informação visual)"),
@@ -33,13 +37,10 @@ public final class HomeScreen implements ScreenComponent {
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.destination).fillWidth(),
                         new Button("Escolher destino").onClick(model::chooseDestination)),
-                new Text("Agendamento diário: início e fim em HH:mm; intervalo em minutos. Use 00:00–23:59 para o dia inteiro."),
+                new TextFlow(new Text("Agendamento diário: início e fim em HH:mm; intervalo em minutos. Use 00:00–23:59 para o dia inteiro.")),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.start), new Input(model.end), new Input(model.interval)),
-                new Row(new RowProps().spacingOf(8)).children(
-                        new Button("Salvar definições").onClick(model::save),
-                        new Button(model.copyActionLabel).onClick(model::toggleCopy)),
-                new Text("Definições"),
+                new Button(model.copyActionLabel).onClick(model::toggleCopy),
                 new Text(model.status));
     }
 }
