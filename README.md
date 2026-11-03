@@ -3,6 +3,9 @@
 Aplicativo desktop nativo Megalodonte para copiar uma pasta para um dispositivo USB montado. A lista de dispositivos é informativa; a pasta de destino define onde gravar.
 
 A janela inicial tem 820 × 650 e o texto explicativo do agendamento se ajusta à largura disponível. O [ícone do aplicativo](src/main/resources/icon.svg) identifica a cópia de uma pasta para USB.
+No Linux, a janela usa uma classe de inicialização própria para receber o ícone
+correto no dock. Ao mudar o PNG, o Megalodonte cria um caminho de ícone novo
+para evitar a imagem antiga em cache.
 
 ## Executar
 
