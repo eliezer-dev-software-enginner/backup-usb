@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.IOException;
+import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.*;
 
 class BackupServiceTest {
@@ -17,9 +18,12 @@ class BackupServiceTest {
         Files.writeString(source.resolve("data.txt"), "new");
         Files.createDirectory(source.resolve("empty"));
         Files.writeString(destination.resolve("data.txt"), "old");
-        BackupService.copy(source, destination, mount, ignored -> {});
+        var progress = new ArrayList<BackupService.Progress>();
+        BackupService.copy(source, destination, mount, progress::add);
         assertEquals("new", Files.readString(destination.resolve("data.txt")));
         assertTrue(Files.isDirectory(destination.resolve("empty")));
+        assertEquals(0, progress.getFirst().percent());
+        assertEquals(100, progress.getLast().percent());
     }
 
     @Test void rejectsDestinationOutsideMount() throws Exception {

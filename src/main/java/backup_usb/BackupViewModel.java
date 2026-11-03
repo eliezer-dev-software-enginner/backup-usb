@@ -27,6 +27,8 @@ public final class BackupViewModel {
     public final State<String> interval = State.of("60");
     public final State<String> devices = State.of("Buscando dispositivos...");
     public final State<String> status = State.of("Pronto.");
+    public final State<String> copyStatus = State.of("Nenhuma cópia iniciada.");
+    public final State<Integer> copyPercent = State.of(0);
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "backup-usb-scheduler"); thread.setDaemon(true); return thread;
     });
@@ -74,21 +76,25 @@ public final class BackupViewModel {
     }
 
     private void runCopy(Settings settings) {
-        if (!copying.compareAndSet(false, true)) { UI.runOnUi(() -> status.set("Já existe uma cópia em andamento.")); return; }
-        UI.runOnUi(() -> status.set("Validando espaço e iniciando cópia..."));
+        if (!copying.compareAndSet(false, true)) { UI.runOnUi(() -> copyStatus.set("Já existe uma cópia em andamento.")); return; }
+        UI.runOnUi(() -> { copyPercent.set(0); copyStatus.set("Validando espaço e iniciando cópia..."); });
+        LOG.info("Iniciando cópia para " + settings.destination());
         Thread.startVirtualThread(() -> {
             try {
                 Path mount = UsbDevices.mounted().stream()
                         .filter(path -> settings.destination().startsWith(path))
                         .max((a, b) -> Integer.compare(a.getNameCount(), b.getNameCount()))
                         .orElseThrow(() -> new IOException("Destino não está em um USB montado."));
-                BackupService.copy(settings.source(), settings.destination(), mount,
-                        message -> UI.runOnUi(() -> status.set(message)));
-                UI.runOnUi(() -> status.set("Cópia concluída."));
+                BackupService.copy(settings.source(), settings.destination(), mount, progress -> {
+                    String message = progress.message();
+                    LOG.info(message);
+                    UI.runOnUi(() -> { copyPercent.set(progress.percent()); copyStatus.set(message); });
+                });
+                UI.runOnUi(() -> { copyPercent.set(100); copyStatus.set("Cópia concluída."); });
                 LOG.info("Cópia concluída em " + settings.destination());
             } catch (Exception e) {
                 LOG.log(Level.SEVERE, "Falha na cópia", e);
-                UI.runOnUi(() -> status.set("Falha na cópia: " + e.getMessage()));
+                UI.runOnUi(() -> copyStatus.set("Falha na cópia: " + e.getMessage()));
             } finally { copying.set(false); }
         });
     }

@@ -4,6 +4,7 @@ import megalodonte.base.components.Component;
 import megalodonte.base.components.ScreenComponent;
 import megalodonte.components.Text;
 import megalodonte.components.Button;
+import megalodonte.components.ProgressBar;
 import megalodonte.components.inputs.Input;
 import megalodonte.components.layout_components.Column;
 import megalodonte.components.layout_components.Row;
@@ -34,6 +35,10 @@ public final class HomeScreen implements ScreenComponent {
                 new Row(new RowProps().spacingOf(8)).children(
                         new Button("Salvar definições").onClick(model::save),
                         new Button("Iniciar cópia agora").onClick(model::copyNow)),
-                new Text(model.status));
+                new Text("Definições"),
+                new Text(model.status),
+                new Text("Progresso da cópia"),
+                new ProgressBar(model.copyPercent),
+                new Text(model.copyStatus));
     }
 }

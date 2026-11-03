@@ -8,8 +8,12 @@ import java.util.function.Consumer;
 
 public final class BackupService {
     private BackupService() {}
+    public record Progress(int completed, int total) {
+        public int percent() { return total == 0 ? 100 : (int) ((long) completed * 100 / total); }
+        public String message() { return "Copiados " + completed + "/" + total + " arquivos (" + percent() + "%)."; }
+    }
 
-    public static void copy(Path source, Path destination, Path mount, Consumer<String> progress) throws IOException {
+    public static void copy(Path source, Path destination, Path mount, Consumer<Progress> progress) throws IOException {
         source = source.toRealPath();
         mount = mount.toRealPath();
         destination = destination.toAbsolutePath().normalize();
@@ -32,6 +36,7 @@ public final class BackupService {
         long required = 0;
         for (Path file : files) required = Math.addExact(required, Files.size(file));
         if (Files.getFileStore(mount).getUsableSpace() < required) throw new IOException("Espaço insuficiente no USB: são necessários " + required + " bytes livres.");
+        progress.accept(new Progress(0, files.size()));
         Files.createDirectories(destination);
         for (Path directory : directories) {
             Path targetDirectory = destination.resolve(source.relativize(directory));
@@ -52,7 +57,7 @@ public final class BackupService {
                 try { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
                 catch (AtomicMoveNotSupportedException e) { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING); }
             } finally { Files.deleteIfExists(temporary); }
-            progress.accept("Copiados " + (++done) + "/" + files.size() + " arquivos");
+            progress.accept(new Progress(++done, files.size()));
         }
     }
 }
