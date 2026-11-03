@@ -5,6 +5,7 @@ import megalodonte.base.components.ScreenComponent;
 import megalodonte.components.Text;
 import megalodonte.components.Button;
 import megalodonte.components.ProgressBar;
+import megalodonte.components.Scroll;
 import megalodonte.components.TextFlow;
 import megalodonte.components.inputs.Input;
 import megalodonte.components.layout_components.Column;
@@ -17,7 +18,7 @@ public final class HomeScreen implements ScreenComponent {
     private final BackupViewModel model = new BackupViewModel();
 
     @Override public Component render() {
-        return new Column(new ColumnProps().paddingAll(28).spacingOf(12)).children(
+        return new Scroll(new Column(new ColumnProps().paddingAll(28).spacingOf(12)).children(
                 new Text("Backup USB", new TextProps().fontSize(28)),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Text("Progresso da cópia:"),
@@ -37,10 +38,13 @@ public final class HomeScreen implements ScreenComponent {
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.destination).fillWidth(),
                         new Button("Escolher destino").onClick(model::chooseDestination)),
-                new TextFlow(new Text("Agendamento diário: início e fim em HH:mm; intervalo em minutos. Use 00:00–23:59 para o dia inteiro.")),
+                new TextFlow(new Text("Janela diária (HH:mm) e reconciliação periódica (minutos). Durante a janela, alterações na origem também iniciam uma sincronização após 2 segundos. Use 00:00–23:59 para o dia inteiro.")),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.start), new Input(model.end), new Input(model.interval)),
+                new TextFlow(new Text(model.watchStatus)),
                 new Button(model.copyActionLabel).onClick(model::toggleCopy),
-                new Text(model.status));
+                new TextFlow(new Text(model.status))));
     }
+
+    @Override public void onDestroy() { model.close(); }
 }

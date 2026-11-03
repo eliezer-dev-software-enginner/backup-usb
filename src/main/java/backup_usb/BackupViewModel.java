@@ -13,7 +13,9 @@ import java.nio.file.Files;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,11 +33,16 @@ public final class BackupViewModel {
     public final State<Integer> copyPercent = State.of(0);
     public final State<String> copyPercentLabel = State.of("0%");
     public final State<String> copyActionLabel = State.of("Iniciar cópia agora");
+    public final State<String> watchStatus = State.of("Monitoramento ainda não configurado.");
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "backup-usb-scheduler"); thread.setDaemon(true); return thread;
     });
     private final AtomicBoolean copying = new AtomicBoolean();
     private final AtomicBoolean cancelRequested = new AtomicBoolean();
+    private final AtomicBoolean resyncRequested = new AtomicBoolean();
+    private final AtomicLong watchGeneration = new AtomicLong();
+    private volatile SourceWatcher watcher;
+    private ScheduledFuture<?> pendingWatchSync;
     private volatile Settings saved;
     private volatile long lastSlot = -1;
 
@@ -69,7 +76,8 @@ public final class BackupViewModel {
             Files.createDirectories(SETTINGS.getParent());
             try (var out = Files.newOutputStream(SETTINGS)) { properties.store(out, "Backup USB"); }
             saved = settings;
-            status.set("Definições salvas. Agendamento ativo enquanto o aplicativo estiver aberto.");
+            startWatching(settings);
+            status.set("Definições salvas. Sincronização ativa na janela enquanto o aplicativo estiver aberto.");
         } catch (Exception e) { status.set("Não foi possível salvar: " + e.getMessage()); }
     }
 
@@ -85,23 +93,30 @@ public final class BackupViewModel {
     }
 
     private void runCopy(Settings settings) {
-        if (!copying.compareAndSet(false, true)) { UI.runOnUi(() -> copyStatus.set("Já existe uma cópia em andamento.")); return; }
+        if (!copying.compareAndSet(false, true)) { resyncRequested.set(true); return; }
         cancelRequested.set(false);
         UI.runOnUi(() -> { copyPercent.set(0); copyPercentLabel.set("0%"); copyActionLabel.set("Interromper cópia"); copyStatus.set("Validando espaço e iniciando cópia..."); });
-        LOG.info("Iniciando cópia para " + settings.destination());
+        LOG.info("Iniciando sincronização incremental para " + settings.destination());
         Thread.startVirtualThread(() -> {
             try {
+                BackupService.Progress[] latestProgress = new BackupService.Progress[1];
                 Path mount = UsbDevices.mounted().stream()
                         .filter(path -> settings.destination().startsWith(path))
                         .max((a, b) -> Integer.compare(a.getNameCount(), b.getNameCount()))
                         .orElseThrow(() -> new IOException("Destino não está em um USB montado."));
                 BackupService.copy(settings.source(), settings.destination(), mount, progress -> {
+                    latestProgress[0] = progress;
                     String message = progress.message();
                     LOG.info(message);
                     UI.runOnUi(() -> { copyPercent.set(progress.percent()); copyPercentLabel.set(progress.percent() + "%"); copyStatus.set(message); });
-                }, cancelRequested::get);
-                UI.runOnUi(() -> { copyPercent.set(100); copyPercentLabel.set("100%"); copyStatus.set("Cópia concluída."); });
-                LOG.info("Cópia concluída em " + settings.destination());
+                }, cancelRequested::get, message -> {
+                    LOG.info(message);
+                    UI.runOnUi(() -> copyStatus.set(message));
+                });
+                String result = latestProgress[0].total() == 0 ? latestProgress[0].message()
+                        : "Sincronização concluída. " + latestProgress[0].message();
+                UI.runOnUi(() -> { copyPercent.set(100); copyPercentLabel.set("100%"); copyStatus.set(result); });
+                LOG.info(result + " Destino: " + settings.destination());
             } catch (BackupService.Cancelled e) {
                 LOG.info("Cópia interrompida pelo usuário.");
                 UI.runOnUi(() -> copyStatus.set("Cópia interrompida pelo usuário."));
@@ -111,8 +126,52 @@ public final class BackupViewModel {
             } finally {
                 copying.set(false);
                 UI.runOnUi(() -> copyActionLabel.set("Iniciar cópia agora"));
+                if (resyncRequested.getAndSet(false) && !cancelRequested.get()) {
+                    Settings latest = saved;
+                    if (latest != null && BackupSchedule.inWindow(latest.start(), latest.end(), LocalTime.now())) runCopy(latest);
+                }
             }
         });
+    }
+
+    private void startWatching(Settings settings) {
+        long generation = watchGeneration.incrementAndGet();
+        SourceWatcher previous = watcher;
+        watcher = null;
+        if (previous != null) try { previous.close(); } catch (IOException e) { LOG.log(Level.WARNING, "Falha ao fechar monitor anterior", e); }
+        watchStatus.set("Preparando monitoramento da origem...");
+        Thread.startVirtualThread(() -> {
+            try {
+                SourceWatcher next = SourceWatcher.start(settings.source(), () -> sourceChanged(settings),
+                        error -> {
+                            if (watchGeneration.get() != generation) return;
+                            LOG.log(Level.WARNING, "Monitoramento da origem falhou", error);
+                            UI.runOnUi(() -> { if (watchGeneration.get() == generation) watchStatus.set("Monitoramento falhou: " + error.getMessage()); });
+                        });
+                if (watchGeneration.get() != generation) { next.close(); return; }
+                watcher = next;
+                UI.runOnUi(() -> { if (watchGeneration.get() == generation) watchStatus.set("Origem monitorada durante a janela diária; reconciliação a cada " + settings.interval() + " min."); });
+            } catch (Exception e) {
+                if (watchGeneration.get() != generation) return;
+                LOG.log(Level.WARNING, "Não foi possível monitorar a origem", e);
+                UI.runOnUi(() -> { if (watchGeneration.get() == generation) watchStatus.set("Monitoramento indisponível; reconciliação periódica permanece ativa: " + e.getMessage()); });
+            }
+        });
+    }
+
+    private synchronized void sourceChanged(Settings settings) {
+        if (pendingWatchSync != null) pendingWatchSync.cancel(false);
+        pendingWatchSync = timer.schedule(() -> {
+            if (settings.equals(saved) && BackupSchedule.inWindow(settings.start(), settings.end(), LocalTime.now())) runCopy(settings);
+        }, 2, TimeUnit.SECONDS);
+    }
+
+    public void close() {
+        watchGeneration.incrementAndGet();
+        SourceWatcher current = watcher;
+        if (current != null) try { current.close(); } catch (IOException e) { LOG.log(Level.WARNING, "Falha ao fechar monitor", e); }
+        timer.shutdownNow();
+        cancelRequested.set(true);
     }
 
     private void tick() {
@@ -120,9 +179,7 @@ public final class BackupViewModel {
         if (settings == null) return;
         LocalTime now = LocalTime.now();
         int minute = now.getHour() * 60 + now.getMinute();
-        int first = settings.start().getHour() * 60 + settings.start().getMinute();
-        int last = settings.end().getHour() * 60 + settings.end().getMinute();
-        if (minute < first || minute > last || (minute - first) % settings.interval() != 0) return;
+        if (!BackupSchedule.due(settings.start(), settings.end(), settings.interval(), now)) return;
         long slot = java.time.LocalDate.now().toEpochDay() * 1440 + minute;
         if (lastSlot != slot) { lastSlot = slot; runCopy(settings); }
     }
@@ -149,6 +206,7 @@ public final class BackupViewModel {
             end.set(properties.getProperty("end", "23:59"));
             interval.set(properties.getProperty("interval", "60"));
             saved = parse();
+            startWatching(saved);
         } catch (Exception e) { status.set("Definições salvas inválidas: " + e.getMessage()); }
     }
 

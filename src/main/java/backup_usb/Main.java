@@ -12,8 +12,12 @@ public final class Main {
         ThemeManager.setTheme(new DefaultTheme());
         MegalodonteApp.appName("Backup USB");
         MegalodonteApp.appIcon("/icon.png");
+        HomeScreen[] screen = new HomeScreen[1];
         MegalodonteApp.run(AppHost.class, args, context -> {
-            context.useView(new HomeScreen(), 820, 650);
+            screen[0] = new HomeScreen();
+            context.useView(screen[0], 820, 650);
+        }, event -> {
+            if (event == MegalodonteApp.Event.CloseRequest && screen[0] != null) screen[0].onDestroy();
         });
     }
 }
