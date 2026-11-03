@@ -16,11 +16,11 @@ public final class BackupService {
     public static final class Cancelled extends IOException {
         public Cancelled() { super("Cópia interrompida pelo usuário."); }
     }
-    public record Progress(int completed, int total, int unchanged) {
-        public int percent() { return total == 0 ? 100 : (int) ((long) completed * 100 / total); }
+    public record Progress(int completed, int total, int unchanged, long copiedBytes, long totalBytes) {
+        public int percent() { return totalBytes == 0 ? 100 : (int) (copiedBytes * 100.0 / totalBytes); }
         public String message() {
             return total == 0 ? "Nenhuma alteração; " + unchanged + " arquivos já atualizados (100%)."
-                    : "Copiados " + completed + "/" + total + " arquivos (" + percent() + "%). "
+                    : "Copiados " + completed + "/" + total + " arquivos; " + copiedBytes / (1024 * 1024) + "/" + totalBytes / (1024 * 1024) + " MiB (" + percent() + "%). "
                     + unchanged + " sem alterações.";
         }
     }
@@ -64,6 +64,7 @@ public final class BackupService {
         int unchanged = 0;
         long growth = 0;
         long largestTemporary = 0;
+        long totalBytes = 0;
         scanStatus.accept("Comparando 0/" + files.size() + " arquivos...");
         int scanned = 0;
         for (Path file : files) {
@@ -78,6 +79,7 @@ public final class BackupService {
                 unchanged++;
             } else {
                 planned.add(new Planned(file, target, size, previousSize, modified));
+                totalBytes = Math.addExact(totalBytes, size);
                 growth = Math.addExact(growth, Math.max(0, size - previousSize));
                 largestTemporary = Math.max(largestTemporary, size);
             }
@@ -87,7 +89,7 @@ public final class BackupService {
         }
         long required = Math.addExact(growth, largestTemporary);
         if (Files.getFileStore(mount).getUsableSpace() < required) throw new IOException("Espaço insuficiente no USB: são necessários " + required + " bytes livres para esta sincronização.");
-        progress.accept(new Progress(0, planned.size(), unchanged));
+        progress.accept(new Progress(0, planned.size(), unchanged, 0, totalBytes));
         Files.createDirectories(destination);
         for (Path directory : directories) {
             checkCancelled(cancelled);
@@ -96,6 +98,8 @@ public final class BackupService {
             Files.createDirectories(targetDirectory);
         }
         int done = 0;
+        long copiedBytes = 0;
+        long lastReportedBytes = 0;
         for (Planned item : planned) {
             checkCancelled(cancelled);
             Path target = item.target();
@@ -108,14 +112,20 @@ public final class BackupService {
                     for (int count; (count = input.read(buffer)) != -1;) {
                         checkCancelled(cancelled);
                         output.write(buffer, 0, count);
+                        copiedBytes += count;
+                        if (copiedBytes - lastReportedBytes >= 8L * 1024 * 1024) {
+                            progress.accept(new Progress(done, planned.size(), unchanged, copiedBytes, totalBytes));
+                            lastReportedBytes = copiedBytes;
+                        }
                     }
+                    scanStatus.accept("Aguardando o USB confirmar a gravação de " + item.source().getFileName() + "...");
                 }
                 checkCancelled(cancelled);
                 Files.setLastModifiedTime(temporary, item.modified());
                 try { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
                 catch (AtomicMoveNotSupportedException e) { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING); }
             } finally { Files.deleteIfExists(temporary); }
-            progress.accept(new Progress(++done, planned.size(), unchanged));
+            progress.accept(new Progress(++done, planned.size(), unchanged, copiedBytes, totalBytes));
         }
     }
 

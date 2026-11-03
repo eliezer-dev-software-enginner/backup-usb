@@ -46,6 +46,20 @@ class BackupServiceTest {
         try (var entries = Files.list(destination)) { assertEquals(1, entries.count()); }
     }
 
+    @Test void reportsBytesBeforeFirstFileFinishes() throws Exception {
+        Path source = Files.createDirectory(root.resolve("source"));
+        Path mount = Files.createDirectory(root.resolve("usb"));
+        Files.write(source.resolve("large.bin"), new byte[17 * 1024 * 1024]);
+        var progress = new ArrayList<BackupService.Progress>();
+        var phases = new ArrayList<String>();
+
+        BackupService.copy(source, mount.resolve("backup"), mount, progress::add, () -> false, phases::add);
+
+        assertTrue(progress.stream().anyMatch(item -> item.completed() == 0 && item.copiedBytes() >= 8L * 1024 * 1024));
+        assertEquals(100, progress.getLast().percent());
+        assertTrue(phases.stream().anyMatch(item -> item.contains("Aguardando o USB confirmar")));
+    }
+
     @Test void skipsUnchangedFilesAndCopiesOnlyNewOrModifiedOnes() throws Exception {
         Path source = Files.createDirectory(root.resolve("source"));
         Path mount = Files.createDirectory(root.resolve("usb"));
