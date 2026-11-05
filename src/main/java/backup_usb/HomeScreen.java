@@ -1,5 +1,6 @@
 package backup_usb;
 
+import megalodonte.ForEachState;
 import megalodonte.base.components.Component;
 import megalodonte.base.components.ScreenComponent;
 import megalodonte.components.Text;
@@ -13,6 +14,7 @@ import megalodonte.components.layout_components.Row;
 import megalodonte.props.ColumnProps;
 import megalodonte.props.RowProps;
 import megalodonte.props.TextProps;
+import megalodonte.v2.Show;
 
 public final class HomeScreen implements ScreenComponent {
     private final BackupViewModel model = new BackupViewModel();
@@ -30,10 +32,18 @@ public final class HomeScreen implements ScreenComponent {
                 new Text("Dispositivos USB montados (informação visual)"),
                 new Text(model.devices),
                 new Button("Atualizar dispositivos").onClick(model::refreshDevices),
-                new Text("Pasta de origem"),
+                new Text("Pastas de origem"),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.source).fillWidth(),
-                        new Button("Escolher origem").onClick(model::chooseSource)),
+                        new Button("Escolher origem").onClick(()->model.chooseSource(model.source))
+                ),
+               new Column().items(
+                        ForEachState.of(model.sourcesInputIdx, it-> new Row(new RowProps().spacingOf(8)).children(
+                                new Input(it.source()).fillWidth(),
+                                new Button("Escolher origem").onClick(()->model.chooseSource(it.source()))
+                        )),10
+                ),
+                new Button("+ Origem").onClick(model::addSourceInput),
                 new Text("Pasta de destino dentro do USB"),
                 new Row(new RowProps().spacingOf(8)).children(
                         new Input(model.destination).fillWidth(),

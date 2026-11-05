@@ -1,8 +1,12 @@
 package backup_usb;
 
+import backup_usb.data.InputSource;
+import megalodonte.ComputedState;
 import megalodonte.base.UI;
 import megalodonte.base.state.State;
 import megalodonte.components.FilePicker;
+import megalodonte.components.StateList;
+import megalodonte.v2.ListState;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -22,6 +26,9 @@ import java.util.logging.Logger;
 public final class BackupViewModel {
     private static final Logger LOG = Logger.getLogger(BackupViewModel.class.getName());
     private static final Path SETTINGS = Path.of(System.getProperty("user.home"), ".config", "backup-usb", "settings.properties");
+    public static final ListState<InputSource> sourcesInputIdx = ListState.ofEmpty();
+    public static final ListState<String> sources = ListState.ofEmpty();
+    public static int sourcesIndex = 0;
     public final State<String> source = State.of("");
     public final State<String> destination = State.of("");
     public final State<String> start = State.of("00:00");
@@ -52,7 +59,7 @@ public final class BackupViewModel {
         timer.scheduleAtFixedRate(this::tick, 0, 30, TimeUnit.SECONDS);
     }
 
-    public void chooseSource() { FilePicker.chooseDirectory(null, "Escolher pasta de origem").ifPresent(path -> source.set(path.toString())); }
+    public void chooseSource(State<String> sourceInputState) { FilePicker.chooseDirectory(null, "Escolher pasta de origem").ifPresent(path -> sourceInputState.set(path.toString())); }
     public void chooseDestination() { FilePicker.chooseDirectory(null, "Escolher pasta no USB").ifPresent(path -> destination.set(path.toString())); }
 
     public void refreshDevices() {
@@ -62,6 +69,11 @@ public final class BackupViewModel {
                 UI.runOnUi(() -> devices.set(mounts.isEmpty() ? "Nenhum USB montado." : String.join(" • ", mounts.stream().map(Path::toString).toList())));
             } catch (IOException e) { UI.runOnUi(() -> devices.set("Não foi possível consultar os USBs: " + e.getMessage())); }
         });
+    }
+
+    public void addSourceInput(){
+        sourcesIndex++;
+        sourcesInputIdx.add(new InputSource(sourcesIndex,new State<>("")));
     }
 
     public void save() {
