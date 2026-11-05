@@ -16,12 +16,13 @@ public final class BackupService {
     public static final class Cancelled extends IOException {
         public Cancelled() { super("Cópia interrompida pelo usuário."); }
     }
-    public record Progress(int completed, int total, int unchanged, long copiedBytes, long totalBytes) {
+    public record Progress(int completed, int total, int unchanged, int skipped, long copiedBytes, long totalBytes) {
         public int percent() { return totalBytes == 0 ? 100 : (int) (copiedBytes * 100.0 / totalBytes); }
         public String message() {
-            return total == 0 ? "Nenhuma alteração; " + unchanged + " arquivos já atualizados (100%)."
+            String ignored = skipped == 0 ? "" : " " + skipped + " links simbólicos/arquivos especiais ignorados.";
+            return total == 0 ? "Nenhuma alteração; " + unchanged + " arquivos já atualizados (100%)." + ignored
                     : "Copiados " + completed + "/" + total + " arquivos; " + copiedBytes / (1024 * 1024) + "/" + totalBytes / (1024 * 1024) + " MiB (" + percent() + "%). "
-                    + unchanged + " sem alterações.";
+                    + unchanged + " sem alterações." + ignored;
         }
     }
 
@@ -51,13 +52,14 @@ public final class BackupService {
         }
         List<Path> files = new ArrayList<>();
         List<Path> directories = new ArrayList<>();
+        int skipped = 0;
         try (var stream = Files.walk(source)) {
             for (Path path : stream.toList()) {
                 checkCancelled(cancelled);
-                if (Files.isSymbolicLink(path)) throw new IOException("Origem contém link simbólico: " + path);
+                if (Files.isSymbolicLink(path)) { skipped++; continue; }
                 if (Files.isRegularFile(path)) files.add(path);
                 else if (Files.isDirectory(path)) directories.add(path);
-                else throw new IOException("Arquivo especial não suportado: " + path);
+                else skipped++;
             }
         }
         List<Planned> planned = new ArrayList<>();
@@ -89,7 +91,7 @@ public final class BackupService {
         }
         long required = Math.addExact(growth, largestTemporary);
         if (Files.getFileStore(mount).getUsableSpace() < required) throw new IOException("Espaço insuficiente no USB: são necessários " + required + " bytes livres para esta sincronização.");
-        progress.accept(new Progress(0, planned.size(), unchanged, 0, totalBytes));
+        progress.accept(new Progress(0, planned.size(), unchanged, skipped, 0, totalBytes));
         Files.createDirectories(destination);
         for (Path directory : directories) {
             checkCancelled(cancelled);
@@ -114,7 +116,7 @@ public final class BackupService {
                         output.write(buffer, 0, count);
                         copiedBytes += count;
                         if (copiedBytes - lastReportedBytes >= 8L * 1024 * 1024) {
-                            progress.accept(new Progress(done, planned.size(), unchanged, copiedBytes, totalBytes));
+                            progress.accept(new Progress(done, planned.size(), unchanged, skipped, copiedBytes, totalBytes));
                             lastReportedBytes = copiedBytes;
                         }
                     }
@@ -125,7 +127,7 @@ public final class BackupService {
                 try { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
                 catch (AtomicMoveNotSupportedException e) { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING); }
             } finally { Files.deleteIfExists(temporary); }
-            progress.accept(new Progress(++done, planned.size(), unchanged, copiedBytes, totalBytes));
+            progress.accept(new Progress(++done, planned.size(), unchanged, skipped, copiedBytes, totalBytes));
         }
     }
 

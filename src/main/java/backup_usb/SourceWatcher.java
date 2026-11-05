@@ -32,7 +32,7 @@ public final class SourceWatcher implements AutoCloseable {
     private void registerTree(Path root) throws IOException {
         try (var paths = Files.walk(root)) {
             for (Path path : paths.toList()) {
-                if (Files.isSymbolicLink(path)) throw new IOException("Origem contém link simbólico: " + path);
+                if (Files.isSymbolicLink(path)) continue;
                 if (Files.isDirectory(path)) directories.put(path.register(service, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE), path);
             }
         }

@@ -23,6 +23,21 @@ class SourceWatcherTest {
         }
     }
 
+    @Test void watchesTreeContainingSymbolicLinks() throws Exception {
+        Path watched = Files.createDirectory(root.resolve("watched"));
+        Path outside = Files.createDirectory(root.resolve("outside"));
+        Files.createSymbolicLink(watched.resolve("outside-link"), outside);
+        Files.createSymbolicLink(watched.resolve("broken-link"), root.resolve("missing"));
+        CountDownLatch changed = new CountDownLatch(1);
+        AtomicReference<Exception> failure = new AtomicReference<>();
+
+        try (SourceWatcher ignored = SourceWatcher.start(watched, changed::countDown, failure::set)) {
+            Files.writeString(watched.resolve("new.txt"), "new data");
+            assertTrue(changed.await(5, TimeUnit.SECONDS));
+            assertNull(failure.get());
+        }
+    }
+
     @Test void registersNewSubdirectories() throws Exception {
         CountDownLatch createdDirectory = new CountDownLatch(1);
         CountDownLatch changedInside = new CountDownLatch(2);

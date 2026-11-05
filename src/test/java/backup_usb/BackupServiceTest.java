@@ -27,6 +27,28 @@ class BackupServiceTest {
         assertEquals(100, progress.getLast().percent());
     }
 
+    @Test void ignoresSymbolicLinksAndSpecialEntriesInSource() throws Exception {
+        Path source = Files.createDirectory(root.resolve("source"));
+        Path outside = Files.createDirectory(root.resolve("outside"));
+        Path mount = Files.createDirectory(root.resolve("usb"));
+        Path destination = mount.resolve("backup");
+        Files.writeString(source.resolve("data.txt"), "data");
+        Files.writeString(outside.resolve("secret.txt"), "secret");
+        Files.createSymbolicLink(source.resolve("data-link.txt"), source.resolve("data.txt"));
+        Files.createSymbolicLink(source.resolve("outside-link"), outside);
+        Files.createSymbolicLink(source.resolve("broken-link"), root.resolve("missing"));
+        var progress = new ArrayList<BackupService.Progress>();
+
+        BackupService.copy(source, destination, mount, progress::add);
+
+        assertEquals("data", Files.readString(destination.resolve("data.txt")));
+        assertFalse(Files.exists(destination.resolve("data-link.txt"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(destination.resolve("outside-link"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(destination.resolve("broken-link"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertEquals(3, progress.getLast().skipped());
+        assertTrue(progress.getLast().message().contains("3 links simbólicos/arquivos especiais ignorados."));
+    }
+
     @Test void rejectsDestinationOutsideMount() throws Exception {
         Path source = Files.createDirectory(root.resolve("source"));
         Path mount = Files.createDirectory(root.resolve("usb"));
