@@ -1,6 +1,7 @@
 package backup_usb;
 
 import backup_usb.data.InputSource;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import megalodonte.base.UI;
 import megalodonte.base.state.State;
 import megalodonte.components.FilePicker;
@@ -51,6 +52,8 @@ public final class BackupViewModel {
     private volatile Settings saved;
     private volatile long lastSlot = -1;
 
+    private ObjectMapper objectMapper = new ObjectMapper();
+
     public BackupViewModel() {
         load();
         refreshDevices();
@@ -78,7 +81,8 @@ public final class BackupViewModel {
         try {
             Settings settings = parse();
             Properties properties = new Properties();
-            properties.setProperty("sources", settings.sources().toString());
+            properties.setProperty("source", settings.source().toString());
+            properties.setProperty("sources", objectMapper.writeValueAsString(settings.sources().stream().map(Path::toString).toList()));
             properties.setProperty("destination", settings.destination().toString());
             properties.setProperty("start", settings.start().toString());
             properties.setProperty("end", settings.end().toString());
@@ -106,6 +110,44 @@ public final class BackupViewModel {
         if (!copying.compareAndSet(false, true)) { resyncRequested.set(true); return; }
         cancelRequested.set(false);
         UI.runOnUi(() -> { copyPercent.set(0); copyPercentLabel.set("0%"); copyActionLabel.set("Interromper cópia"); copyStatus.set("Validando espaço e iniciando cópia..."); });
+
+        LOG.info("Iniciando sincronização incremental para " + settings.destination());
+        Thread.startVirtualThread(() -> {
+            try {
+                BackupService.Progress[] latestProgress = new BackupService.Progress[1];
+                Path mount = UsbDevices.mounted().stream()
+                        .filter(path -> settings.destination().startsWith(path))
+                        .max((a, b) -> Integer.compare(a.getNameCount(), b.getNameCount()))
+                        .orElseThrow(() -> new IOException("Destino não está em um USB montado."));
+                BackupService.copy(settings.source(), settings.destination(), mount, progress -> {
+                    latestProgress[0] = progress;
+                    String message = progress.message();
+                    LOG.info(message);
+                    UI.runOnUi(() -> { copyPercent.set(progress.percent()); copyPercentLabel.set(progress.percent() + "%"); copyStatus.set(message); });
+                }, cancelRequested::get, message -> {
+                    LOG.info(message);
+                    UI.runOnUi(() -> copyStatus.set(message));
+                });
+                String result = latestProgress[0].total() == 0 ? latestProgress[0].message()
+                        : "Sincronização concluída. " + latestProgress[0].message();
+                UI.runOnUi(() -> { copyPercent.set(100); copyPercentLabel.set("100%"); copyStatus.set(result); });
+                LOG.info(result + " Destino: " + settings.destination());
+            } catch (BackupService.Cancelled e) {
+                LOG.info("Cópia interrompida pelo usuário.");
+                UI.runOnUi(() -> copyStatus.set("Cópia interrompida pelo usuário."));
+            } catch (Exception e) {
+                LOG.log(Level.SEVERE, "Falha na cópia", e);
+                UI.runOnUi(() -> copyStatus.set("Falha na cópia: " + e.getMessage()));
+            } finally {
+                copying.set(false);
+                UI.runOnUi(() -> copyActionLabel.set("Iniciar cópia agora"));
+                if (resyncRequested.getAndSet(false) && !cancelRequested.get()) {
+                    Settings latest = saved;
+                    if (latest != null && BackupSchedule.inWindow(latest.start(), latest.end(), LocalTime.now())) runCopy(latest);
+                }
+            }
+        });
+
         settings.sources.forEach(source->{
             LOG.info("Iniciando sincronização incremental para " + settings.destination());
             Thread.startVirtualThread(() -> {
@@ -201,22 +243,28 @@ public final class BackupViewModel {
 
     private Settings parse() {
         if (source.get().isBlank() || destination.get().isBlank()) throw new IllegalArgumentException("Informe origem e destino.");
-        //Path src = Path.of(source.get()).toAbsolutePath().normalize();
+        Path src = Path.of(source.get()).toAbsolutePath().normalize();
         List<Path> sources = sourcesInputIdx.get().stream().map(s -> Path.of(s.source().get()).toAbsolutePath().normalize()).toList();
         Path dst = Path.of(destination.get()).toAbsolutePath().normalize();
         LocalTime from = LocalTime.parse(start.get());
         LocalTime to = LocalTime.parse(end.get());
         int minutes = Integer.parseInt(interval.get());
         if (to.isBefore(from) || minutes < 1 || minutes > 1440) throw new IllegalArgumentException("Janela ou intervalo inválido.");
-        return new Settings(sources, dst, from, to, minutes);
+        return new Settings(src,sources, dst, from, to, minutes);
     }
 
     private void load() {
         if (!Files.exists(SETTINGS)) return;
         try {
+
             Properties properties = new Properties();
             try (var in = Files.newInputStream(SETTINGS)) { properties.load(in); }
             source.set(properties.getProperty("source", ""));
+            sourcesInputIdx.clear();
+            sourcesIndex = 0;
+            for (Object stored : objectMapper.readValue(properties.getProperty("sources", "[]"), List.class)) {
+                sourcesInputIdx.add(new InputSource(++sourcesIndex, State.of(stored.toString())));
+            }
             destination.set(properties.getProperty("destination", ""));
             start.set(properties.getProperty("start", "00:00"));
             end.set(properties.getProperty("end", "23:59"));
@@ -226,5 +274,5 @@ public final class BackupViewModel {
         } catch (Exception e) { status.set("Definições salvas inválidas: " + e.getMessage()); }
     }
 
-    private record Settings(List<Path> sources, Path destination, LocalTime start, LocalTime end, int interval) {}
+    private record Settings(Path source, List<Path> sources, Path destination, LocalTime start, LocalTime end, int interval) {}
 }
