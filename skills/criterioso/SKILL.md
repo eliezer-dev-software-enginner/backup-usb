@@ -23,9 +23,22 @@ Reproduza ou rastreie o cenário descrito, inclusive a sequência de cliques, en
 
 ## Implementar no lugar certo
 
+Em projetos com Java 25 ou posterior, o método de entrada `main` não precisa ser `public`; omita esse modificador quando não houver exigência externa de API ou compatibilidade. Omita também `String[] args` quando não for usado. Se os argumentos forem encaminhados ao framework ou necessários ao comportamento da aplicação, mantenha-os; em projetos com Java anterior, preserve as exigências da versão suportada.
+
 Separe mecanismos genéricos de regras do produto. Um editor ou gerador não deve esconder comandos, respostas e decisões que pertencem ao projeto gerado. Alterar o gerador não atualiza automaticamente projetos existentes: ajuste o projeto em uso e o gerador quando ambos fazem parte do objetivo. Migre a lógica completa, com estado e testes relevantes, antes de remover o código antigo; verifique que o empacotamento inclui os arquivos e APIs necessários.
 
 Procure usos equivalentes do comportamento defeituoso e corrija os afetados, respeitando diferenças de domínio. Prefira bibliotecas e componentes existentes, verificando a API real antes de usá-la. Ao mudar uma biblioteca consumida localmente, execute seus testes, publique em Maven Local quando esse for o mecanismo de consumo, e confira o artefato atualizado no projeto-alvo. Não rode novamente testes de outras aplicações sem pedido explícito do usuário. `includeBuild` e compilação da fonte não provam que o aplicativo instalado recebeu a mudança.
+
+Quando o ecossistema já possui uma biblioteca orientada a dados para um artefato
+como PDF, reutilize-a e siga o consumidor canônico antes de criar outro gerador.
+No Megalodonte com `pack-utilities`, isso significa `DataPdf` mais template JSONC
+versionado; lógica de domínio prepara dados, enquanto o template controla layout.
+
+Para cores, estilos e capacidades de terminal em CLIs Python, prefira uma
+biblioteca mantida e multiplataforma, como Rich, em vez de sequências ANSI
+implementadas manualmente. Preserve saída limpa quando redirecionada e respeite
+`NO_COLOR`. Em outras linguagens, escolha a integração equivalente sem confundir
+fachada de logging com backend ou renderizador de terminal.
 
 ## Validar o resultado observável
 
@@ -43,9 +56,26 @@ Se o projeto mantiver uma estimativa de progresso, revise-a em cada iteração c
 
 ## Tornar o recurso utilizável e entregar
 
+### Commits locais automáticos
+
+Depois de concluir e validar uma mudança de software autorizada, crie o commit
+local correspondente sem esperar um pedido adicional do usuário. Use uma mensagem
+que descreva o resultado final e inclua somente arquivos pertencentes à tarefa;
+preserve alterações preexistentes ou alheias. Em trabalhos com vários repositórios,
+faça um commit coerente em cada repositório alterado. Se ainda houver trabalho
+autorizado em andamento, faça commits intermediários em marcos estáveis e continue.
+
+O commit automático não autoriza `push`, publicação, release ou deploy. Execute
+essas ações somente quando já estiverem autorizadas e respeite as regras locais
+de horário, branch e aprovação.
+
 Recursos com sintaxe ou sequência não óbvia precisam de um exemplo de uso no README do projeto em uso e, se forem reutilizáveis, no modelo gerado. Na interface, use texto ou tooltip junto ao controle para explicar a ação; mostre o caminho entre clique, gatilho e resposta. Operações longas devem expor progresso, sucesso e erro também nos logs relevantes. Revise documentos antigos que contradigam o comportamento novo.
 
+Quando documentar uma correção por código, inclua o trecho completo necessário para aplicá-la, com imports e a sequência relevante de inicialização, não apenas a declaração isolada. Identifique classes que representam exemplos e preserve as configurações existentes; distinga exemplos ilustrativos daqueles que funcionam diretamente em outro modo ou plataforma.
+
 ### README público e documentação interna
+
+Mantenha cada README coeso em um único idioma, sem alternar português e inglês no mesmo texto. Para bibliotecas, ferramentas e outros projetos voltados ao público, escreva o README principal em inglês; se houver versão bilíngue, apresente a versão completa em inglês primeiro e uma tradução equivalente em português, claramente separada e mantida em sincronia. Um aplicativo pessoal sem público externo pode ter README integralmente em português. Preserve nomes próprios, comandos e termos técnicos necessários. Siga uma escolha de idioma explicitamente solicitada pelo usuário para o projeto.
 
 Trate o README como a entrada de quem encontrou **apenas aquele repositório**. Comece pelo nome, propósito e estado real do produto; mostre suas funções principais, requisitos, instalação, primeiro uso e links para a documentação detalhada. Prefira exemplos executáveis e caminhos relativos à raiz do próprio repositório ou variáveis de ambiente documentadas. Um caminho absoluto do computador do autor, um checkout irmão presumido, um token, um ID privado ou instruções dirigidas ao agente não pertencem ao README. Mova decisões, migrações, notas de manutenção e instruções específicas do workspace para `docs/`, `CONTRIBUTING.md` ou `AGENTS.md`, conforme o público.
 
